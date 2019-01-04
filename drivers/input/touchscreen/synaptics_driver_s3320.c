@@ -65,6 +65,7 @@
 #include "synaptics_dsx_core.h"
 
 #include <linux/moduleparam.h>
+#include <linux/oneplus/boot_mode.h>
 /*------------------------------------------------Global Define--------------------------------------------*/
 
 #define TP_UNKNOWN 0
@@ -192,11 +193,6 @@ static int Single_gesture = 0;		//"(SingleTap)"
 static int Enable_gesture = 0;
 static int gesture_switch = 0;
 #endif
-
-bool haptic_feedback_disable = false;
-module_param(haptic_feedback_disable, bool, 0644);
-
-void qpnp_hap_ignore_next_request(void);
 
 /*********************for Debug LOG switch*******************/
 // #define DEBUG
@@ -1489,63 +1485,7 @@ static void gesture_judge(struct synaptics_ts_data *ts)
 			    (regswipe == 0x84) ? DouSwip : UnkownGestrue;
 			break;
 		}
-	case CIRCLE_DETECT:
-		gesture = Circle;
-		break;
-	case VEE_DETECT:
-		gesture = (gesture_buffer[2] == 0x01) ? DownVee :
-		    (gesture_buffer[2] == 0x02) ? UpVee :
-		    (gesture_buffer[2] == 0x04) ? RightVee :
-		    (gesture_buffer[2] == 0x08) ? LeftVee : UnkownGestrue;
-		break;
-	case FINGER_DOWN:
-		if (ts->project_version == 0x03) {
-			ts->fp_up_down = 1;
-			ts->fp_aod_cnt = 1;
-			sysfs_notify(&ts->dev->kobj, NULL,
-				     dev_attr_fp_irq.attr.name);
-			TPD_DEBUG("%s:FINGER_DOWN %d\n", __func__,
-				  ts->fp_up_down);
-			/*update tp info */
-			set_tp_info(ts, 1);
-			gf_opticalfp_irq_handler(1);
-			not_getbase = 1;
-			need_reset = 0;
-		}
-		gesture = UnkownGestrue;
-		break;
-	case FINGER_UP:
-		if (ts->project_version == 0x03) {
-			ts->fp_up_down = 0;
-			ts->fp_aod_cnt = 0;
-			sysfs_notify(&ts->dev->kobj, NULL,
-				     dev_attr_fp_irq.attr.name);
-			TPD_DEBUG("%s:FINGER_UP %d\n", __func__,
-				  ts->fp_up_down);
-			/*update tp info */
-			set_tp_info(ts, 0);
-			gf_opticalfp_irq_handler(0);
-		}
-		gesture = UnkownGestrue;
-		break;
-	case SINGLE_TAP:
-		if (ts->project_version == 0x03) {
-			TPD_DEBUG("%s:SINGLE TAP\n", __func__);
-			gesture = SingleTap;
-		}
-		break;
-	case UNICODE_DETECT:
-		gesture = (gesture_buffer[2] == 0x77) ? Wgestrue :
-		    (gesture_buffer[2] == 0x6d) ? Mgestrue :
-		    (gesture_buffer[2] == 0x73) ? Sgestrue : UnkownGestrue;
-		break;
-		//#endif, ruanbanmao@bsp 2015-05-06, end.
-	default:
-		gesture = UnkownGestrue;
-		break;
-	}
 
-#if 0
 	keyCode = UnkownGestrue;
 	// Get key code based on registered gesture.
 	switch (gesture) {
@@ -1582,7 +1522,6 @@ static void gesture_judge(struct synaptics_ts_data *ts)
 	default:
 		break;
 	}
-#endif
 
 	TPD_ERR("detect %s gesture\n", gesture == DouTap ? "(double tap)" :
 		gesture == UpVee ? "(V)" :
@@ -1602,32 +1541,19 @@ static void gesture_judge(struct synaptics_ts_data *ts)
 	if ((gesture != SingleTap) && (gesture != DouTap))
 		synaptics_get_coordinate_point(ts);
 
-	TPD_DEBUG
-	    ("gesture suport LeftVee:%d RightVee:%d DouSwip:%d Circle:%d UpVee:%d DouTap:%d\n",
-	     LeftVee_gesture, RightVee_gesture, DouSwip_gesture, Circle_gesture,
-	     UpVee_gesture, DouTap_gesture);
-	if ((gesture == DouTap && DouTap_gesture)
-	    || (gesture == RightVee && RightVee_gesture)
-	    || (gesture == LeftVee && LeftVee_gesture) || (gesture == UpVee
-							   && UpVee_gesture)
-	    || (gesture == Circle && Circle_gesture) || (gesture == DouSwip
-							 && DouSwip_gesture)
-	    || (gesture == Sgestrue && Sgestrue_gesture) || (gesture == Wgestrue
-							     &&
-							     Wgestrue_gesture)
-	    || (gesture == Mgestrue && Mgestrue_gesture)
-	    || (gesture == SingleTap && Single_gesture)) {
+    TPD_DEBUG("gesture suport LeftVee:%d RightVee:%d DouSwip:%d Circle:%d UpVee:%d DouTap:%d\n",\
+        LeftVee_gesture,RightVee_gesture,DouSwip_gesture,Circle_gesture,UpVee_gesture,DouTap_gesture);
+	if((gesture == DouTap && DouTap_gesture)||(gesture == RightVee && RightVee_gesture)\
+		||(gesture == LeftVee && LeftVee_gesture)||(gesture == UpVee && UpVee_gesture)\
+		||(gesture == Circle && Circle_gesture)||(gesture == DouSwip && DouSwip_gesture)\
+		||(gesture == Sgestrue && Sgestrue_gesture)||(gesture == Wgestrue && Wgestrue_gesture)\
+		||(gesture == Mgestrue && Mgestrue_gesture)||(gesture == SingleTap && Single_gesture)) {
 		input_report_key(ts->input_dev, keyCode, 1);
 		input_sync(ts->input_dev);
 		input_report_key(ts->input_dev, keyCode, 0);
 		input_sync(ts->input_dev);
-
-		if (haptic_feedback_disable)
-			qpnp_hap_ignore_next_request();
-	} else {
-		ret =
-		    i2c_smbus_read_i2c_block_data(ts->client, F12_2D_CTRL20, 3,
-						  &(reportbuf[0x0]));
+	}else{
+		ret = i2c_smbus_read_i2c_block_data( ts->client, F12_2D_CTRL20, 3, &(reportbuf[0x0]) );
 		ret = reportbuf[2] & 0x20;
 		if (ret == 0)
 			reportbuf[2] |= 0x02;
@@ -2127,19 +2053,18 @@ static ssize_t tp_gesture_write_func(struct file *file,
 	Circle_gesture = (buf[0] & BIT6) ? 1 : 0;	//"O"
 	DouTap_gesture = (buf[0] & BIT7) ? 1 : 0;	//double tap
 
-	Sgestrue_gesture = (buf[1] & BIT0) ? 1 : 0;	//"S"
-	Mgestrue_gesture = (buf[1] & BIT1) ? 1 : 0;	//"M"
-	Wgestrue_gesture = (buf[1] & BIT2) ? 1 : 0;	//"W"
-	Single_gesture = (buf[1] & BIT3) ? 1 : 0;	//"Single_gesture"
-	//enable gesture
-	Enable_gesture = (buf[1] & BIT7) ? 1 : 0;
+	Sgestrue_gesture = (buf[1] & BIT0)?1:0;//"S"
+	Mgestrue_gesture = (buf[1] & BIT1)?1:0; //"M"
+	Wgestrue_gesture = (buf[1] & BIT2)?1:0; //"W"
 
 	if (DouTap_gesture || Circle_gesture || UpVee_gesture
-	    || LeftVee_gesture || RightVee_gesture || DouSwip_gesture
-	    || Sgestrue_gesture || Mgestrue_gesture || Wgestrue_gesture
-	    || Enable_gesture || Single_gesture) {
+		|| LeftVee_gesture || RightVee_gesture || DouSwip_gesture
+		|| Sgestrue_gesture || Mgestrue_gesture || Wgestrue_gesture
+		|| Enable_gesture || Single_gesture) {
 		ts->gesture_enable = 1;
-	} else {
+	}
+	else
+	{
 		ts->gesture_enable = 0;
 	}
 	return count;
@@ -3814,13 +3739,20 @@ static int synaptics_input_init(struct synaptics_ts_data *ts)
 	set_bit(INPUT_PROP_DIRECT, ts->input_dev->propbit);
 	set_bit(BTN_TOOL_FINGER, ts->input_dev->keybit);
 #ifdef SUPPORT_GESTURE
-	set_bit(KEY_F4, ts->input_dev->keybit);	//doulbe-tap resume
+	set_bit(KEY_F4 , ts->input_dev->keybit);//doulbe-tap resume
 	set_bit(KEY_DOUBLE_TAP, ts->input_dev->keybit);
 	set_bit(KEY_GESTURE_CIRCLE, ts->input_dev->keybit);
 	set_bit(KEY_GESTURE_V, ts->input_dev->keybit);
 	set_bit(KEY_GESTURE_TWO_SWIPE, ts->input_dev->keybit);
 	set_bit(KEY_GESTURE_LEFT_V, ts->input_dev->keybit);
 	set_bit(KEY_GESTURE_RIGHT_V, ts->input_dev->keybit);
+	set_bit(KEY_GESTURE_W, ts->input_dev->keybit);
+	set_bit(KEY_GESTURE_M, ts->input_dev->keybit);
+	set_bit(KEY_GESTURE_S, ts->input_dev->keybit);
+	set_bit(KEY_GESTURE_SWIPE_UP, ts->input_dev->keybit);
+	set_bit(KEY_GESTURE_SWIPE_LEFT, ts->input_dev->keybit);
+	set_bit(KEY_GESTURE_SWIPE_RIGHT, ts->input_dev->keybit);
+	set_bit(KEY_GESTURE_SWIPE_DOWN, ts->input_dev->keybit);
 	set_bit(KEY_APPSELECT, ts->input_dev->keybit);
 	set_bit(KEY_BACK, ts->input_dev->keybit);
 #endif
@@ -6159,8 +6091,7 @@ static int synaptics_ts_init_virtual_key(struct synaptics_ts_data *ts)
 }
 #endif
 
-static int synaptics_ts_probe(struct i2c_client *client,
-			      const struct i2c_device_id *id)
+static int synaptics_ts_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
 #ifdef CONFIG_SYNAPTIC_RED
 	struct remotepanel_data *premote_data = NULL;
@@ -6452,14 +6383,13 @@ static int synaptics_ts_probe(struct i2c_client *client,
 	}
 #endif
 	init_synaptics_proc();
-
 	TPDTM_DMESG("synaptics_ts_probe 3203: normal end\n");
 
 	return 0;
 
- exit_init_failed:
-	free_irq(client->irq, ts);
- exit_createworkqueue_failed:
+exit_init_failed:
+	free_irq(client->irq,ts);
+exit_createworkqueue_failed:
 	destroy_workqueue(synaptics_wq);
 	synaptics_wq = NULL;
 	destroy_workqueue(get_base_report);
